@@ -1,8 +1,24 @@
 import json
 import time
 import paho.mqtt.client as mqtt
+import psycopg2
 
 eventCount = 0
+only_date = ""
+
+# ===== PostgreSQL connection =====
+
+conn = psycopg2.connect(
+    host="localhost",
+    port=5432,
+    database="iot_db",
+    user="iot_user",
+    password="iot_password",
+)
+
+cursor = conn.cursor()
+
+print("Connected to PostgreSQL")
 
 
 # Функция, которая вызывается при успешном подключении к MQTT-брокеру
@@ -16,6 +32,7 @@ def on_connect(client, userdata, flags, rc):
 # Функция, которая вызывается при каждом получении MQTT-сообщения
 def on_message(client, userdata, msg):
     global eventCount
+    global only_date
     # # # Преобразуем payload (байты) в строку и парсим JSON в словарь Python
     data = json.loads(msg.payload.decode())
 
@@ -24,6 +41,7 @@ def on_message(client, userdata, msg):
 
     # # # Преобразуем Unix-время в читаемую строку: год-месяц-день час:мин:сек
     readable_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+    only_date = time.strftime("%Y-%m-%d", time.localtime(timestamp))
 
     # # Выводим информацию о событии
     # print("TOPIC:", msg.topic)
@@ -47,6 +65,17 @@ def on_message(client, userdata, msg):
     with open("events.log", "a") as f:
         f.write(json.dumps(data) + "\n")
 
+    # ===== сохраняем событие в PostgreSQL =====
+    cursor.execute(
+        """
+        INSERT INTO motion_events (device_name, event_type, event_time)
+        VALUES (%s, %s, %s)
+        """,
+        (data.get("device"), data.get("event"), data.get("time")),
+    )
+
+    conn.commit()
+
 
 # Создаём экземпляр MQTT-клиента
 client = mqtt.Client()
@@ -65,6 +94,8 @@ try:
 
 except KeyboardInterrupt:
     print("\nОстановка программы")
+    print(only_date)
+
 
 finally:
     print("ИТОГО motion_start:", eventCount)
