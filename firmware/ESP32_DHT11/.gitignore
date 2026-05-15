@@ -7,4 +7,4 @@
 .vscode/
 *.bin
 *.elf
-include\config.h
+include\config.hinclude/config.h
