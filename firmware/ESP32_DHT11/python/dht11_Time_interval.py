@@ -1,17 +1,37 @@
-# Подписывается на топик dht11/data и записывает каждое сообщение в CSV-файл
+# Подписывается на топик dht11/data, сохраняет в CSV и PostgreSQL
 
-import paho.mqtt.client as mqtt
 import json
-from datetime import datetime
+import time
+import paho.mqtt.client as mqtt
+import psycopg2
 
-# ----- НАСТРОЙКИ -----
-MQTT_BROKER = "192.168.0.103"  # IP вашего MQTT брокера (компьютер)
-MQTT_TOPIC = "dht11/data"  # топик, куда ESP32 публикует данные
-LOG_FILE = "room1_dht11.csv"  # имя выходного файла
-ROOM_NAME = "room1"  # название комнаты (будет добавлено в каждую строку)
+# ===== Подключение к PostgreSQL =====
+conn = psycopg2.connect(
+    host="localhost",
+    port=5432,
+    database="iot_db",
+    user="iot_user",
+    password="iot_password",
+)
+cursor = conn.cursor()
+print("Connected to PostgreSQL")
+
+# ===== Настройки =====
+MQTT_BROKER = "192.168.0.103"  # IP вашего MQTT брокера
+MQTT_TOPIC = "dht11/data"
+LOG_FILE = "room1_dht11.csv"
+ROOM_NAME = "room1"
+
+# ===== CSV: если файл пустой, добавим заголовок =====
+try:
+    with open(LOG_FILE, "r") as f:
+        pass
+except FileNotFoundError:
+    with open(LOG_FILE, "w") as f:
+        f.write("timestamp,temperature,humidity,room\n")
 
 
-# ----- ФУНКЦИЯ ПОДКЛЮЧЕНИЯ -----
+# ===== MQTT callbacks =====
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("Connected to MQTT broker")
@@ -20,37 +40,52 @@ def on_connect(client, userdata, flags, rc):
         print(f"Connection failed with code {rc}")
 
 
-# ----- ФУНКЦИЯ ОБРАБОТКИ СООБЩЕНИЙ -----
 def on_message(client, userdata, msg):
     try:
-        # Декодируем payload из байтов в строку
-        payload_str = msg.payload.decode()
-        # Преобразуем JSON в словарь Python
-        data = json.loads(payload_str)
+        # Разбор JSON из MQTT
+        data = json.loads(msg.payload.decode())
         temp = data.get("temperature")
         hum = data.get("humidity")
         if temp is None or hum is None:
-            return  # если данных нет, игнорируем
+            return
 
-        # Текущее время в читаемом формате
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Читаемое время
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Открываем файл для добавления (a)
+        # Вывод в консоль
+        print(f"[DHT11] {now} - Temp: {temp:.1f}°C, Hum: {hum:.1f}%")
+
+        # 1. Сохраняем в CSV
         with open(LOG_FILE, "a") as f:
-            # Если файл пустой, записываем заголовок
-            if f.tell() == 0:
-                f.write("timestamp,temperature,humidity,room\n")
-            # Записываем строку с данными
             f.write(f"{now},{temp:.1f},{hum:.1f},{ROOM_NAME}\n")
 
-        print(f"[LOG] {now} - Temp: {temp:.1f}°C, Hum: {hum:.1f}%")
+        # 2. Сохраняем в PostgreSQL
+        cursor.execute(
+            """
+            INSERT INTO dht11_data (temperature, humidity, room_name, timestamp)
+            VALUES (%s, %s, %s, %s)
+        """,
+            (temp, hum, ROOM_NAME, now),
+        )
+        conn.commit()
+
     except Exception as e:
-        print(f"Error processing message: {e}")
+        print(f"Error: {e}")
 
 
-# ----- СОЗДАЁМ КЛИЕНТА И ЗАПУСКАЕМ -----
+# ===== Запуск клиента =====
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 client.connect(MQTT_BROKER, 1883, 60)
-client.loop_forever()  # бесконечный цикл приёма сообщений
+
+print("Listening for DHT11 data...")
+try:
+    while True:
+        client.loop()
+        time.sleep(0.1)
+except KeyboardInterrupt:
+    print("\nОстановка программы")
+finally:
+    cursor.close()
+    conn.close()
