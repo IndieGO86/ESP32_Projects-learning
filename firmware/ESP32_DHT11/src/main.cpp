@@ -18,7 +18,7 @@ PubSubClient client(espClient); // MQTT клиент, использует espCl
 
 // ===== ТАЙМЕР ДЛЯ ОТПРАВКИ ДАННЫХ (НЕ БЛОКИРУЕТ LOOP) =====
 unsigned long lastMsg = 0;     // время последней отправки
-const long interval = 20000;    // интервал отправки – 20 секунд
+const long interval = 300000;    // интервал между отправками (300000 мс = 5 минут)
 
 void setup() {
   // --- 1. Отладка через Serial ---
