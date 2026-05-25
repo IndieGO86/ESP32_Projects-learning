@@ -27,5 +27,10 @@ else:
     for row in rows:
         print(f"{row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]}")
 
+stats = cursor.fetchone()
+print(
+    f"\nВсего записей: {stats[0]}, температура: мин={stats[1]}, макс={stats[2]}, сред={stats[3]:.1f}"
+)
+
 cursor.close()
 conn.close()
