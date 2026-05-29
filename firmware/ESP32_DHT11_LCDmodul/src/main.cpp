@@ -54,6 +54,12 @@ int redChannel = 0;
 int greenChannel = 1;
 int blueChannel = 2;
 
+// ===== РЕЛЕ =====
+#define RELAY_PIN 12
+const float TEMP_COOL_ON  = 24.0;   // выше этой – включаем
+const float TEMP_COOL_OFF = 23.80;   // ниже этой – выключаем (гистерезис)
+bool relayState = false;
+
 
 void setup() {
   Serial.begin(115200);
@@ -103,6 +109,10 @@ void setup() {
   lcd.Display("Starting...");
   delay(2000);
   lcd.Clear();
+  
+  // Реле
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW);
 }
 
 // Функция установки цвета с яркостью 0-255
@@ -136,6 +146,28 @@ void updateRGB() {
 
 }
 
+void publishRelayStatus() {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "{\"relay\":%d}", relayState);
+    client.publish("esp32/relay/status", buf);
+}
+
+// Функция управления реле с гистерезисом 
+void updateRelay() {
+    if (currentTemperature > TEMP_COOL_ON && !relayState) {  
+        relayState = true;
+        digitalWrite(RELAY_PIN, HIGH);
+        Serial.println("Relay ON");
+        publishRelayStatus();
+    }
+    else if (currentTemperature < TEMP_COOL_OFF && relayState) { 
+        relayState = false;
+        digitalWrite(RELAY_PIN, LOW);
+        Serial.println("Relay OFF");
+        publishRelayStatus();
+    }   
+}
+
 void loop() {
   // Обязательно для MQTT
   client.loop();
@@ -165,7 +197,9 @@ void loop() {
     snprintf(line0, sizeof(line0), "T:%.1fC H:%.1f%%", currentTemperature, currentHumidity);
     lcd.Display(line0);
     
-    // Строка 1: статус
+    
+
+    // Строка 2: статус
     lcd.Cursor(2, 0);
     if (currentTemperature < TEMP_WARN) {
         lcd.Display("NORMAL          ");
@@ -179,21 +213,29 @@ void loop() {
     lcd.Cursor(1, 0);
     lcd.Display("                ");
     lcd.Cursor(3, 0);
-    lcd.Display("                ");
+    if (relayState) {
+        lcd.Display("      | RELAY: ON ");
+    } else {
+        lcd.Display("      | RELAY: OFF");
+    }
+        
   }
 
   // --- Обновление цвета RGB (постоянно, используя currentTemperature) ---
   updateRGB();
+  // --- Управление реле (постоянно, используя currentTemperature) ---
+  updateRelay();
+
 
   // --- Отправка MQTT раз в 100 секунд ---
   if (millis() - lastMsg >= mqttInterval) {
     lastMsg = millis();
 
     // Подготавливаем JSON с актуальными значениями
-    char payload[50];
+    char payload[80];
     snprintf(payload, sizeof(payload),
-             "{\"temperature\":%.1f,\"humidity\":%.1f}",
-             currentTemperature, currentHumidity);
+         "{\"temperature\":%.1f,\"humidity\":%.1f,\"relayState\":%d}",
+         currentTemperature, currentHumidity, relayState);
     
     client.publish("dht11/data", payload);
     Serial.print("MQTT отправлено: ");
