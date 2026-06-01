@@ -253,3 +253,7 @@ TOTAL motion_start: 3
 {"event": "motion_end", "device": "esp32_room_1", "time": 1778613109}
 
 TOTAL motion_start: 7
+
+TOTAL motion_start: 0
+
+TOTAL motion_start: 0
