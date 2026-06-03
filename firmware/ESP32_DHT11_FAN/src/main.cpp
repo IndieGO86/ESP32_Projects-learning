@@ -55,7 +55,8 @@ int greenChannel = 1;
 int blueChannel = 2;
 
 // ===== Вентилятор =====
-#define FAN_PIN 12
+#define FAN_PIN_Min 12
+#define FAN_PIN_Plus 14
 const float TEMP_COOL_ON  = 24.0;   // выше этой – включаем
 const float TEMP_COOL_OFF = 23.80;   // ниже этой – выключаем (гистерезис)
 bool fanState = false;
@@ -112,8 +113,10 @@ void setup() {
   
 
   // Вентилятор
-  pinMode(FAN_PIN, OUTPUT);
-  digitalWrite(FAN_PIN, LOW);
+  pinMode(FAN_PIN_Min, OUTPUT);
+  pinMode(FAN_PIN_Plus, OUTPUT);
+  digitalWrite(FAN_PIN_Min, LOW);
+  digitalWrite(FAN_PIN_Plus, LOW);
 }
 
 // Функция установки цвета с яркостью 0-255
@@ -159,13 +162,13 @@ void publishFanStatus() {
 void updateFan() {
     if (currentTemperature > TEMP_COOL_ON && !fanState) {  
         fanState = true;
-        digitalWrite(FAN_PIN, HIGH);
+        digitalWrite(FAN_PIN_Plus, HIGH);
         Serial.println("Fan ON");
         publishFanStatus();
     }
     else if (currentTemperature < TEMP_COOL_OFF && fanState) { 
         fanState = false;
-        digitalWrite(FAN_PIN, LOW);
+        digitalWrite(FAN_PIN_Plus, LOW);
         Serial.println("Fan OFF");
         publishFanStatus();
     }   
