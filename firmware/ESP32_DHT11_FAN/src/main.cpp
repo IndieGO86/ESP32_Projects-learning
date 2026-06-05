@@ -22,7 +22,7 @@ PubSubClient client(espClient);
 unsigned long lastMsg = 0;        // для MQTT отправки
 unsigned long lastSensorRead = 0; // для опроса датчика
 const long mqttInterval = 100000; // 100 секунд между MQTT отправками
-const long sensorInterval = 2000; // 2 секунды между чтениями DHT11
+const long sensorInterval = 5000; // 5 секунд между чтениями DHT11
 // ===== ДЛЯ LCD таймеры =====
 unsigned long lastDisplayUpdate = 0;
 const long displayInterval = 1000; // обновление дисплея раз в секунду
@@ -32,7 +32,7 @@ const long displayInterval = 1000; // обновление дисплея раз
 #define GREEN_PIN 25
 #define BLUE_PIN 26
 
-const float TEMP_WARN = 24.61;   // порог предупреждения
+const float TEMP_WARN = 24.71;   // порог предупреждения
 const float TEMP_DANGER = 25.00; // порог аварии
 
 bool alarmBlinkState = false;
@@ -59,7 +59,9 @@ int fanPWMChannel = 3; // для управления вентилятором �
 #define FAN_PIN_Min 12
 #define FAN_PIN_Plus 14
 bool fanState = false;
-int fanSpeed = 0; // 0-255 для ШИМ
+bool lastFanState = false;
+int fanSpeed = 0;   // 0-255 для ШИМ
+void publishData(); // прототип  для функции публикации данных в MQTT, которая будет использоваться в нескольких местах
 
 void setup()
 {
@@ -237,15 +239,18 @@ void updateFan()
   if (newSpeed != fanSpeed)
   {
     fanSpeed = newSpeed;
-
     ledcWrite(fanPWMChannel, fanSpeed);
-
     fanState = (fanSpeed > 0);
-
     Serial.print("Fan speed: ");
     Serial.println(fanSpeed);
-
     publishFanStatus();
+
+    // Отправляем полные данные ТОЛЬКО если состояние включения/выключения изменилось
+    if (fanState != lastFanState)
+    {
+      lastFanState = fanState;
+      publishData();
+    }
   }
 }
 
@@ -280,24 +285,28 @@ void updateDisplay()
   }
 }
 
+// Функция публикации данных в MQTT
+void publishData()
+{
+  char payload[80];
+  snprintf(payload, sizeof(payload),
+           "{\"temperature\":%.1f,\"humidity\":%.1f,\"fan\":%d}",
+           currentTemperature, currentHumidity, fanState ? 1 : 0);
+  client.publish("dht11/data", payload);
+  Serial.print("MQTT data sent: ");
+  Serial.println(payload);
+}
+
 // --- Отправка MQTT раз в 100 секунд ---
 void publishMQTT()
 {
   if (millis() - lastMsg >= mqttInterval)
   {
     lastMsg = millis();
-
-    // Подготавливаем JSON с актуальными значениями
-    char payload[80];
-    snprintf(payload, sizeof(payload),
-             "{\"temperature\":%.1f,\"humidity\":%.1f,\"fan\":%d}",
-             currentTemperature, currentHumidity, fanState ? 1 : 0);
-
-    client.publish("dht11/data", payload);
-    Serial.print("MQTT отправлено: ");
-    Serial.println(payload);
+    publishData();
   }
 }
+
 void loop()
 {
   // Обязательно для MQTT
