@@ -32,8 +32,8 @@ const long displayInterval = 1000; // обновление дисплея раз
 #define GREEN_PIN 25
 #define BLUE_PIN 26
 
-const float TEMP_WARN = 23.80;  // порог предупреждения
-const float TEMP_DANGER = 24.0; // порог аварии
+const float TEMP_WARN = 24.61;   // порог предупреждения
+const float TEMP_DANGER = 25.00; // порог аварии
 
 bool alarmBlinkState = false;
 unsigned long lastBlink = 0;
@@ -58,10 +58,8 @@ int fanPWMChannel = 3; // для управления вентилятором �
 // ===== Вентилятор =====
 #define FAN_PIN_Min 12
 #define FAN_PIN_Plus 14
-
-const float TEMP_COOL_ON = 23.99;  // выше этой – включаем
-const float TEMP_COOL_OFF = 23.80; // ниже этой – выключаем (гистерезис)
 bool fanState = false;
+int fanSpeed = 0; // 0-255 для ШИМ
 
 void setup()
 {
@@ -107,7 +105,7 @@ void setup()
   ledcAttachPin(GREEN_PIN, greenChannel);
   ledcAttachPin(BLUE_PIN, blueChannel);
 
-  ledcSetup(fanPWMChannel, 20000, PWM_RES); // частота 20 кГц, разрешение 8 бит
+  ledcSetup(fanPWMChannel, 35000, PWM_RES); // частота 35 кГц, разрешение 8 бит
   ledcAttachPin(FAN_PIN_Plus, fanPWMChannel);
 
   // Инициализация LCD
@@ -124,8 +122,6 @@ void setup()
   pinMode(FAN_PIN_Min, OUTPUT);
   digitalWrite(FAN_PIN_Min, LOW);
 }
-// В глобальные переменные (у тебя уже есть lastSensorRead и sensorInterval)
-// Они объявлены в начале, это хорошо.
 
 void readSensors()
 {
@@ -205,6 +201,27 @@ void updateRGB()
   }
 }
 
+int computeFanSpeed()
+{
+  if (systemState == "NORMAL")
+  {
+    return 0;
+  }
+
+  else if (systemState == "WARNING")
+  {
+    float range = TEMP_DANGER - TEMP_WARN;
+    float percent = (currentTemperature - TEMP_WARN) / range;
+    float speed = 120 + percent * (200 - 120);
+
+    return constrain((int)speed, 120, 200);
+  }
+
+  else
+  {
+    return 200;
+  }
+}
 void publishFanStatus()
 {
   char buf[32];
@@ -215,22 +232,24 @@ void publishFanStatus()
 // // Функция управления вентилятором с гистерезисом
 void updateFan()
 {
-  if (systemState == "DANGER" && !fanState)
+  int newSpeed = computeFanSpeed();
+
+  if (newSpeed != fanSpeed)
   {
-    fanState = true;
-    ledcWrite(fanPWMChannel, 150); // скорость 150 (0-255) – можно настроить
-    Serial.println("Fan ON (speed 150)");
-    publishFanStatus();
-  }
-  else if (systemState != "DANGER" && fanState)
-  {
-    fanState = false;
-    ledcWrite(fanPWMChannel, 0); // останов
-    Serial.println("Fan OFF");
+    fanSpeed = newSpeed;
+
+    ledcWrite(fanPWMChannel, fanSpeed);
+
+    fanState = (fanSpeed > 0);
+
+    Serial.print("Fan speed: ");
+    Serial.println(fanSpeed);
+
     publishFanStatus();
   }
 }
 
+// Функция обновления LCD дисплея
 void updateDisplay()
 {
 
@@ -253,15 +272,11 @@ void updateDisplay()
     // Строки 2 и 3 можно оставить пустыми или использовать для другой информации
     lcd.Cursor(1, 0);
     lcd.Display("                ");
+
     lcd.Cursor(3, 0);
-    if (fanState)
-    {
-      lcd.Display("      | FAN: ON ");
-    }
-    else
-    {
-      lcd.Display("      | FAN: OFF");
-    }
+    char line3[17];
+    snprintf(line3, sizeof(line3), "FAN:%d SPD:%d", fanState, fanSpeed);
+    lcd.Display(line3);
   }
 }
 
