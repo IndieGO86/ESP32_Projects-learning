@@ -32,8 +32,8 @@ const long displayInterval = 1000; // обновление дисплея раз
 #define GREEN_PIN 25
 #define BLUE_PIN 26
 
-const float TEMP_WARN = 24.71;   // порог предупреждения
-const float TEMP_DANGER = 25.00; // порог аварии
+const float TEMP_WARN = 26.71;   // порог предупреждения
+const float TEMP_DANGER = 27.00; // порог аварии
 
 bool alarmBlinkState = false;
 unsigned long lastBlink = 0;
@@ -60,8 +60,12 @@ int fanPWMChannel = 3; // для управления вентилятором �
 #define FAN_PIN_Plus 14
 bool fanState = false;
 bool lastFanState = false;
-int fanSpeed = 0;   // 0-255 для ШИМ
+int fanSpeed = 0;        // 0-255 для ШИМ
+bool manualMode = false; // true = ручной режим (автоматика отключена)
+
 void publishData(); // прототип  для функции публикации данных в MQTT, которая будет использоваться в нескольких местах
+
+void callback(char *topic, byte *payload, unsigned int length); // прототип функции обратного вызова для MQTT
 
 void setup()
 {
@@ -92,6 +96,9 @@ void setup()
   {
     Serial.println("MQTT НЕ подключён!");
   }
+
+  client.setCallback(callback);      // сообщаем библиотеке, какая функция будет обрабатывать входящие сообщения
+  client.subscribe("esp32/fan/set"); // подписываемся на топик команд
 
   // Пины RGB
   pinMode(RED_PIN, OUTPUT);
@@ -234,6 +241,9 @@ void publishFanStatus()
 // // Функция управления вентилятором с гистерезисом
 void updateFan()
 {
+  if (manualMode)
+    return; // если включен ручной режим, то автоматика не вмешивается
+
   int newSpeed = computeFanSpeed();
 
   if (newSpeed != fanSpeed)
@@ -304,6 +314,49 @@ void publishMQTT()
   {
     lastMsg = millis();
     publishData();
+  }
+}
+
+// Функция обработки входящих сообщений MQTT
+void callback(char *topic, byte *payload, unsigned int length)
+{
+  char message[length + 1];
+  for (int i = 0; i < length; i++)
+    message[i] = (char)payload[i];
+  message[length] = '\0';
+
+  Serial.print("Команда: ");
+  Serial.println(message);
+
+  if (strcmp(topic, "esp32/fan/set") == 0)
+  {
+    if (strcmp(message, "ON") == 0)
+    {
+      manualMode = true; // включаем ручной режим
+      fanSpeed = 150; 
+      ledcWrite(fanPWMChannel, 150);
+      fanState = true;
+      Serial.println("Вентилятор включён (ручной)");
+    }
+    else if (strcmp(message, "OFF") == 0)
+    {
+      manualMode = true; // включаем ручной режим
+      fanSpeed = 0; 
+      ledcWrite(fanPWMChannel, 0);
+      fanState = false;
+      Serial.println("Вентилятор выключен (ручной)");
+    }
+    else if (strcmp(message, "AUTO") == 0)
+    {
+      manualMode = false;
+      Serial.println("Автоматический режим");
+      Serial.print("Текущая температура: ");
+      Serial.println(currentTemperature);
+      int speed = computeFanSpeed();
+      Serial.print("Вычисленная скорость: ");
+      Serial.println(speed);
+      updateFan(); // применим
+    }
   }
 }
 
